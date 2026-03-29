@@ -17,10 +17,13 @@ import static org.lwjgl.opengl.GL20.*;
 import static org.lwjgl.opengl.GL30.*;
 import static org.lwjgl.system.MemoryUtil.*;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Vector;
 
 public class Main {
@@ -113,12 +116,15 @@ public class Main {
                 float deltaY = (float)yPos - dragStart.y;
                 deltaX /= gpu.camera.zoom; // adjust for zoom level
                 deltaY /= gpu.camera.zoom;
-                gpu.SetCameraPosition(cameraStart.x - deltaX, cameraStart.y + deltaY);
+                gpu.SetCameraPosition(cameraStart.x - deltaX, cameraStart.y - deltaY);
             }
         });
 
         float lastTime = (float)glfwGetTime();
         float[] speedScale = {1.0f};
+
+        HashMap<String, Integer> gpuTextureIds = new HashMap<>();
+        boolean paused = false;
 
         boolean[] showLayers = {};
         while (!glfwWindowShouldClose(window)) {
@@ -126,12 +132,12 @@ public class Main {
 
             imGuiGlfw.newFrame();
             ImGui.newFrame();
+            glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
 
             float time = (float)glfwGetTime();
             float deltaTime = time - lastTime;
             lastTime = time;
-            glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
 
             ImGui.sliderFloat("Speed Scale", speedScale, 0.1f, 5.0f);
             ImGui.text(String.format("Time: %.2f seconds", time));
@@ -144,6 +150,9 @@ public class Main {
             float speed = Vector2.Length(velocity);
 
             ImGui.text(String.format("Speed: %.2f", speed));
+            if (ImGui.button(paused ? "Resume" : "Pause")) {
+                paused = !paused;
+            }
 
             ImGui.begin("Trail Selector");
             if (trailFiles != null) {
@@ -162,14 +171,23 @@ public class Main {
                         for (int j = 0; j < showLayers.length; j++) {
                             showLayers[j] = trail.stripes.get(j).enabled != 0;
                         }
+
+                        gpuTextureIds.clear();
+
+                        for (Map.Entry<String, BufferedImage> entry : trail.loadedImages.entrySet()) {
+                            int textureId = RendererGpu.CreateTexture(entry.getValue());
+                            gpuTextureIds.put(entry.getKey(), textureId);
+                        }
                     }
                 }
             }
             ImGui.end();
 
             if (trail != null) {
-                trail.AddPoint(currentPos, velocity, time);
-                trail.Update(deltaTime);
+                if (!paused) {
+                    trail.AddPoint(currentPos, velocity, time);
+                    trail.Update(deltaTime, currentPos, velocity);
+                }
 
                 ImGui.begin("Trail Information");
                 ImGui.text("Trail Name: " + trail.name);
@@ -195,46 +213,19 @@ public class Main {
                 }
                 ImGui.end();
 
-                // for (TrailStripe stripe : trail.stripes) {
-                //     if (stripe.enabled == 0)
-                //         continue;
-                //     gpu.DrawTriangleStrip(stripe.vertices, 
-                //         trail.gpuTextureIds.getOrDefault(stripe.image, -1));
+                for (TrailParticleEmitter emitter : trail.particles) {
+                    gpu.DrawQuads(emitter.vertices, 
+                        gpuTextureIds.getOrDefault(emitter.image, -1));
+                }
 
                 for (TrailStripe stripe : trail.stripes) {
                     if (stripe.enabled == 0 || !stripe.visible)
                         continue;
                     gpu.DrawTriangleStrip(stripe.vertices, 
-                        trail.gpuTextureIds.getOrDefault(stripe.image, -1));
+                        gpuTextureIds.getOrDefault(stripe.image, -1));
                 }
 
-                    // for (Vertex vertex : stripe.vertices) {
-                    //     ImGui.getBackgroundDrawList()
-                    //         .addCircleFilled((float)vertex.position.x, (float)vertex.position.y, 2, ImGui.getColorU32(1f,0f,0f,1f));
-                    // }
-
-                // }
             }
-
-            // gpu.DrawTriangleStrip(trail.stripes.get(0).vertices, 
-            //     trail.gpuTextureIds.getOrDefault(trail.stripes.get(0).image, -1));
-            // gpu.DrawTriangleStrip(trail.stripes.get(1).vertices, 
-            //     trail.gpuTextureIds.getOrDefault(trail.stripes.get(1).image, -1));
-
-            // for (TrailStripe stripe : trail.stripes) {
-            //     if (stripe.enabled == 0) continue;
-            //     for (Vertex vertex : stripe.vertices) {
-            //         ImGui.getBackgroundDrawList()
-            //             .addCircleFilled((float)vertex.position.x, (float)vertex.position.y, 2, ImGui.getColorU32(1f,0f,0f,1f));
-            //     }
-            // }
-
-            // if (ImGui.button("Generate Preview")) {
-            //     RendererCpu renderer = new RendererCpu(1260, 720);
-            //     renderer.Clear(new Color(0.0f, 0.0f, 0.0f, 1.0f));
-            //     trail.Render(renderer);
-            //     renderer.SaveToFile("output.png");
-            // }
 
             ImGui.render();
             imGuiGl3.renderDrawData(ImGui.getDrawData());

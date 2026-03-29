@@ -35,7 +35,6 @@ public class TrailStripe {
 
     Vector<Vertex> vertices;
     Vector<TrailStripeVertex> trailVertices;
-    BufferedImage texture;
 
     TrailStripe() {
         this.trailVertices = new Vector<>();

@@ -41,12 +41,17 @@ public class TrailParticleEmitter {
     boolean useWorldAxis;
     boolean sameSideUp;
     boolean hasGravity;
-    float gravityStrength;
+    Vector2 gravityStrength;
     // boolean isBetaTrail;
 
-    int textureId;
     float timeSinceLastSpawn;
     Random random;
+    int imageWidth;
+    int imageHeight;
+
+    int sequentialFrameIndex; //for sequential sprite mode
+
+    List<Vertex> vertices; //list of quads for all particles-- for one draw call per emitter rather than per particle
 
     //not sure how the game does this, but this is probably good enough
     //return -1 to 1
@@ -57,13 +62,17 @@ public class TrailParticleEmitter {
     public TrailParticleEmitter() {
         particles = new java.util.ArrayList<>();
         random = new Random();
-        textureId = -1;
+        image = "";
         timeSinceLastSpawn = 0;
+        sequentialFrameIndex = 0;
+        vertices = new java.util.ArrayList<>();
 
         enabled = 0;
         order = 0;
         layer = "ObjectLayer";
         image = "";
+        imageWidth = 0;
+        imageHeight = 0;
         visible = true;
         isAnimated = false;
         spriteMode = 0;
@@ -93,15 +102,17 @@ public class TrailParticleEmitter {
         useWorldAxis = false;
         sameSideUp = false;
         hasGravity = false;
-        gravityStrength = 0.0f;
+        gravityStrength = new Vector2(0, 0);
     }
 
-    public TrailParticleEmitter(HashMap<String, String> properties) {
+    public TrailParticleEmitter(HashMap<String, String> properties, int imageWidth, int imageHeight) {
         this();
+        this.imageWidth = imageWidth;
+        this.imageHeight = imageHeight;
         LoadFromHashMap(properties);
     }
 
-    public void Update(Vector2 playerPosition, Vector2 playVelocity, float gameTime, float deltaTime) {
+    public void Update(Vector2 playerPosition, Vector2 playVelocity, float deltaTime) {
         timeSinceLastSpawn += deltaTime;
 
         if (enabled == 0) return;
@@ -111,65 +122,93 @@ public class TrailParticleEmitter {
         if (timeSinceLastSpawn >= spawnRate) {
             timeSinceLastSpawn -= spawnRate;
             for (int i = 0; i < amount; i++) {
-                Emit(playerPosition, playVelocity, gameTime);
+                Emit(playerPosition, playVelocity);
             }
         }
+
+        Update(deltaTime);
     }
 
     private float DegreesToRadians(float degrees) {
         return degrees * (float)Math.PI / 180.0f;
     }
 
-    public void Emit(Vector2 playerPosition, Vector2 playerVelocity, float gameTime) {
+    public void Emit(Vector2 playerPosition, Vector2 playerVelocity) {
         float scaleA = scale + Noise() * scaleVariance;
         float rotationA = rotation + Noise() * rotatationVariance;
         float rotationSpeedA = rotationSpeed + Noise() * rotationSpeedVariance;
+        float playerRotation = (float)Math.atan2(playerVelocity.y, playerVelocity.x) + (playerVelocity.x < 0 ? (sameSideUp ? (float)Math.PI : -(float)Math.PI/2.0f) : 0);
         float offsetXA = offset.x + Noise() * offsetVariance.x;
         float offsetYA = offset.y + Noise() * offsetVariance.y;
         float forceA = force + Noise() * forceVariance;
         float directionXA = direction.x + Noise() * directionVariance.x;
         float directionYA = direction.y + Noise() * directionVariance.y;
-        Vector2 directionVec = Vector2.Normalize(new Vector2(directionXA, directionYA));
-        Vector2 playerNormal = Vector2.Normalize(new Vector2(playerVelocity.x, playerVelocity.y));
+        Vector2 worldDirection = Vector2.Normalize(new Vector2(directionXA, directionYA));
+        Vector2 playerDirection = Vector2.Normalize(playerVelocity); //not really a normal
+        // playerNormal = new Vector2(playerNormal.y, -playerNormal.x); //perpendicular to velocity
 
         rotationA = DegreesToRadians(rotationA);
         rotationSpeedA = DegreesToRadians(rotationSpeedA);
 
-        float initialRotation = rotateWithPlayer ?
-            (float)Math.atan2(
-                sameSideUp && playerNormal.y < 0 ? -playerNormal.y : playerNormal.y, playerNormal.x) +
-                rotationA : rotationA;
+        float initialRotation = rotateWithPlayer ? rotationA + playerRotation : rotationA;
 
         Vector2 initialPosition = new Vector2(playerPosition.x + offsetXA, playerPosition.y + offsetYA);
-        Vector2 initialVelocity = Vector2.Scale(directionVec, forceA);
-        Vector2.Transform(initialVelocity, playerNormal);
-        Vector2 initialAcceleration = hasGravity ? Vector2.Scale(new Vector2(0, 1), gravityStrength) : new Vector2(0, 0);
+        Vector2 initialVelocity = useWorldAxis ? Vector2.Scale(worldDirection, forceA) : Vector2.Scale(playerDirection, forceA);
+        Vector2 initialAcceleration = hasGravity ? gravityStrength : new Vector2(0, 0);
 
-        TrailParticle particle = new TrailParticle();
-        particle.position = initialPosition;
-        particle.velocity = initialVelocity;
-        particle.acceleration = initialAcceleration;
-        particle.rotation = initialRotation;
-        particle.rotationSpeed = rotationSpeedA;
-        particle.scale = new Vector2(scaleA, scaleA);
-        particle.scaleSpeed = scaleSpeed;
-        particle.color = color;
-        particle.opacity = alpha;
+        int frameIndex = 0;
+        if (spriteMode == 3) { //sequential, so determine frame index at spawn time
+            frameIndex = sequentialFrameIndex;
+            sequentialFrameIndex = (sequentialFrameIndex + 1) % (int)(spriteCount.x * spriteCount.y);
+        }
+
+        TrailParticle newParticle = new TrailParticle(
+            image,
+            spriteMode,
+            (int)spriteCount.x,
+            (int)spriteCount.y,
+            spriteFPS,
+            lifetime,
+            fade,
+            new Vector2(scaleA, scaleA),
+            scaleSpeed,
+            initialRotation,
+            rotationSpeedA,
+            color,
+            alpha,
+            initialPosition,
+            initialVelocity,
+            initialAcceleration,
+            frameIndex,
+            imageWidth,
+            imageHeight
+        );
+
+        particles.add(newParticle);
     }
 
-    public void Update(float deltaTime) {
+    private void Update(float deltaTime) {
         for (int i = particles.size() - 1; i >= 0; i--) {
             TrailParticle particle = particles.get(i);
             particle.Update(deltaTime);
             if (particle.lifetime <= 0) {
                 particles.remove(i);
+            } else if (particle.scale.x <= 0 || particle.scale.y <= 0) {
+                particles.remove(i);
             }
+        }
+
+        //update vertex buffer for all particles
+        vertices = new java.util.ArrayList<>(particles.size() * 4); //each particle is a quad (4 vertices)
+        for (TrailParticle particle : particles) {
+            particle.UpdateVertexBuffer(deltaTime);
+            vertices.addAll(particle.vertices);
         }
     }
 
     public void LoadFromHashMap(HashMap<String, String> properties) {
         String enabledString = properties.getOrDefault("Enabled", "NEVER");
-        String spriteModeString = properties.getOrDefault("spriteMode", "DEFAULT"); //TODO
+        String spriteModeString = properties.getOrDefault("spriteMode", "DEFAULT");
 
         switch (enabledString.toUpperCase()) {
             case "NEVER" -> enabled = 0;
@@ -177,6 +216,14 @@ public class TrailParticleEmitter {
             case "ONLY AT SUPERSPEED" -> enabled = 2;
             case "NOT AT SUPERSPEED" -> enabled = 3;
             default -> throw new IllegalArgumentException("Invalid Enabled value: " + enabledString);
+        }
+
+        switch (spriteModeString.toUpperCase()) {
+            case "DEFAULT" -> spriteMode = 0;
+            case "ANIMATED" -> spriteMode = 1;
+            case "RANDOM" -> spriteMode = 2;
+            case "SEQUENTIAL" -> spriteMode = 3;
+            default -> throw new IllegalArgumentException("Invalid sprite mode value: " + spriteModeString);
         }
 
         //enabled
@@ -202,7 +249,7 @@ public class TrailParticleEmitter {
         rotationSpeedVariance =
             Float.parseFloat(properties.getOrDefault("Rotation Speed Variance", "0"));
         rotateWithPlayer =
-            Boolean.parseBoolean(properties.getOrDefault("Rotate With Player", "false"));
+            Boolean.parseBoolean(properties.getOrDefault("Rotate with Player", "FALSE"));
         color = Color.Parse(properties.getOrDefault("Color", "1,1,1"));
         alpha = Float.parseFloat(properties.getOrDefault("Opacity", "1"));
         offset = Vector2.Parse(properties.getOrDefault("Offset", "0,0"));
@@ -217,7 +264,7 @@ public class TrailParticleEmitter {
         useWorldAxis = Boolean.parseBoolean(properties.getOrDefault("Use World Axis", "false"));
         sameSideUp = Boolean.parseBoolean(properties.getOrDefault("Same Side Up", "false"));
         hasGravity = Boolean.parseBoolean(properties.getOrDefault("hasGravity", "false"));
-        gravityStrength = Float.parseFloat(properties.getOrDefault("gravity", "0"));
+        gravityStrength = Vector2.Parse(properties.getOrDefault("gravity", "0,0"));
         // isBetaTrail = Boolean.parseBoolean(properties.getOrDefault("Is Beta Trail", "false"));
     }
 }

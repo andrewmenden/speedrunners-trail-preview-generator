@@ -4,9 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TrailParticle {
-    int textureId;
+    // int textureId;
 
-    byte spriteMode; //TODO
+    byte spriteMode; //default, animated, random, sequential
     int spriteCountX;
     int spriteCountY;
     float fps;
@@ -31,6 +31,7 @@ public class TrailParticle {
     float spriteHeight;
     float timeSinceLastFrame;
 
+    String image;
     int currentFrameIndex;
 
     List<Vertex> vertices;
@@ -62,43 +63,105 @@ public class TrailParticle {
         spriteWidth = imageWidth / spriteCountX;
         spriteHeight = imageHeight / spriteCountY;
 
+        this.image = "";
         currentFrameIndex = 0;
     }
 
-    public void UpdateVertexBuffer() {
-        vertices = new ArrayList<>();
+    public TrailParticle(String image, byte spriteMode, int spriteCountX, int spriteCountY, float fps, float lifetime, boolean fade,
+                         Vector2 scale, float scaleSpeed, float rotation, float rotationSpeed, Color color, float opacity,
+                         Vector2 position, Vector2 velocity, Vector2 acceleration, int initialFrameIndex,
+                         int imageWidth, int imageHeight) {
+        // this.textureId = textureId;
+        this.image = image;
+        this.spriteMode = spriteMode;
+        this.spriteCountX = spriteCountX;
+        this.spriteCountY = spriteCountY;
+        this.fps = fps;
+        this.lifetime = lifetime;
+        this.totalLifetime = lifetime;
+        this.fade = fade;
+        this.scale = scale;
+        this.scaleSpeed = scaleSpeed;
+        this.rotation = rotation;
+        this.rotationSpeed = rotationSpeed;
+        this.color = color;
+        this.opacity = opacity;
+        this.acceleration = acceleration;
+        this.position = position;
+        this.velocity = velocity;
+
+        this.imageWidth = imageWidth;
+        this.imageHeight = imageHeight;
+
+        spriteWidth = imageWidth / spriteCountX;
+        spriteHeight = imageHeight / spriteCountY;
+
+        currentFrameIndex = initialFrameIndex;
+        if (spriteMode == 2) { //random
+            currentFrameIndex = GetRandomFrameIndex();
+        }
+
+        vertices = new ArrayList<>(4);
+    }
+
+    public void UpdateVertexBuffer(float deltaTime) {
+        vertices = new ArrayList<>(4);
         float alpha = fade ? (lifetime / totalLifetime) : 1.0f;
         alpha *= opacity;
         Color vertexColor = new Color(color.r, color.g, color.b, alpha); //color.a is always 1
         int frameX = currentFrameIndex % spriteCountX;
         int frameY = currentFrameIndex / spriteCountX;
-        float u0 = frameX * spriteWidth / imageWidth;
-        float v0 = frameY * spriteHeight / imageHeight;
-        float u1 = u0 + spriteWidth / imageWidth;
-        float v1 = v0 + spriteHeight / imageHeight;
+        float u0, v0, u1, v1;
+        switch (spriteMode) {
+            case 0: //default (display full image, no animation)
+                u0 = 0.0f;
+                v0 = 0.0f;
+                u1 = 1.0f;
+                v1 = 1.0f;
+                break;
+            case 1: //animated
+                u0 = frameX * spriteWidth / imageWidth;
+                v0 = frameY * spriteHeight / imageHeight;
+                u1 = u0 + spriteWidth / imageWidth;
+                v1 = v0 + spriteHeight / imageHeight;
+                UpdateSpriteFrame(deltaTime);
+                break;
+            case 2: //random (chosen at initialization, does not change)
+            case 3: //sequential (chosen at initialization, changes every frame)
+                u0 = frameX * spriteWidth / imageWidth;
+                v0 = frameY * spriteHeight / imageHeight;
+                u1 = u0 + spriteWidth / imageWidth;
+                v1 = v0 + spriteHeight / imageHeight;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid sprite mode: " + spriteMode);
+        }
 
         float scaledHalfWidth = spriteWidth * scale.x / 2.0f;
         float scaledHalfHeight = spriteHeight * scale.y / 2.0f;
 
         Vector2 topLeft = new Vector2(-scaledHalfWidth, -scaledHalfHeight);
-        Vector2.Rotate(topLeft, rotation);
+        topLeft = Vector2.Rotate(topLeft, rotation);
+        Vector2 bottomLeft = new Vector2(-topLeft.y, topLeft.x);
+        Vector2 topRight = new Vector2(topLeft.y, -topLeft.x);
+        Vector2 bottomRight = new Vector2(-topLeft.x, -topLeft.y);
 
-        Vector2 bottomLeft = new Vector2(topLeft.x, -topLeft.y);
-        Vector2 topRight = new Vector2(-topLeft.x, topLeft.y);
-        Vector2 bottomRight = new Vector2(topLeft.x, topLeft.y);
-
-        vertices.set(0, new Vertex(Vector2.Sum(position, topLeft), vertexColor, new Vector2(u0, v0)));
-        vertices.set(1, new Vertex(Vector2.Sum(position, bottomLeft), vertexColor, new Vector2(u0, v1)));
-        vertices.set(2, new Vertex(Vector2.Sum(position, topRight), vertexColor, new Vector2(u1, v0)));
-        vertices.set(3, new Vertex(Vector2.Sum(position, bottomRight), vertexColor, new Vector2(u1, v1)));
+        vertices.add(new Vertex(Vector2.Sum(position, topLeft), vertexColor, new Vector2(u0, v0)));
+        vertices.add(new Vertex(Vector2.Sum(position, bottomLeft), vertexColor, new Vector2(u0, v1)));
+        vertices.add(new Vertex(Vector2.Sum(position, topRight), vertexColor, new Vector2(u1, v0)));
+        vertices.add(new Vertex(Vector2.Sum(position, bottomRight), vertexColor, new Vector2(u1, v1)));
     }
 
     public void Update(float deltaTime) {
-        UpdateSpriteFrame(deltaTime);
         velocity = Vector2.Sum(velocity, Vector2.Scale(acceleration, deltaTime));
         position = Vector2.Sum(position, Vector2.Scale(velocity, deltaTime));
         rotation += rotationSpeed * deltaTime;
+        scale = Vector2.Sum(scale, Vector2.Scale(new Vector2(scaleSpeed, scaleSpeed), deltaTime));
         lifetime -= deltaTime;
+    }
+
+    private int GetRandomFrameIndex() {
+        return (int)(Math.random() * spriteCountX * spriteCountY);
     }
 
     private void UpdateSpriteFrame(float deltaTime) {
@@ -110,7 +173,4 @@ public class TrailParticle {
         }
     }
 
-    private void NextFrame() {
-        //TODO: support for different sprite modes
-    }
 }

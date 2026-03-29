@@ -20,7 +20,6 @@ public class Trail {
     String icon;
     HashMap<String, String> images; //key = image name, value = path in zip file
     HashMap<String, BufferedImage> loadedImages; //key = image name, value = loaded image
-    HashMap<String, Integer> gpuTextureIds; //key = image name, value = OpenGL texture ID
     Boolean keepDefaultTrail;
     long workshopId;
 
@@ -29,7 +28,7 @@ public class Trail {
     //Layers
     List<TrailStripe> stripes;
     List<TrailAnimation> animations;
-    List<TrailParticle> particles;
+    List<TrailParticleEmitter> particles;
 
     Trail() {
         version = 0;
@@ -45,7 +44,7 @@ public class Trail {
 
         stripes = new ArrayList<TrailStripe>();
         animations = new ArrayList<TrailAnimation>();
-        particles = new ArrayList<TrailParticle>();
+        particles = new ArrayList<TrailParticleEmitter>();
     }
 
     Trail(String filename) throws IOException {
@@ -54,7 +53,7 @@ public class Trail {
 
         stripes = new ArrayList<TrailStripe>();
         animations = new ArrayList<TrailAnimation>();
-        particles = new ArrayList<TrailParticle>();
+        particles = new ArrayList<TrailParticleEmitter>();
 
         ReadFromFile(filename);
     }
@@ -82,20 +81,20 @@ public class Trail {
         }
     }
 
-    public void Update(float deltaTime) {
+    public void Update(float deltaTime, Vector2 position, Vector2 velocity) {
         for (TrailStripe stripe : stripes) {
             stripe.Update(deltaTime);
+        }
+
+        for (TrailParticleEmitter emitter : particles) {
+            emitter.Update(position, velocity, deltaTime);
         }
     }
 
     public void Render(RendererCpu renderer) {
-        for (TrailStripe stripe : stripes) {
-            if (stripe.enabled == 0) continue;
-            if (stripe.texture != null) {
-                renderer.SetTexture(stripe.texture);
-            }
-            renderer.DrawTriangleStrip(stripe.vertices);
-        }
+        //TODO
+        // for (TrailStripe stripe : stripes) {
+        // }
     }
 
     public void DebugRenderVertices() {
@@ -117,7 +116,6 @@ public class Trail {
         icon = ReadString(in);
         int imageCount = ReadInt4(in);
         images = new HashMap<>();
-        gpuTextureIds = new HashMap<>();
         for (int i = 0; i < imageCount; i++) {
             String key = ReadString(in);
             String path = ReadString(in);
@@ -155,14 +153,14 @@ public class Trail {
                 case 0 -> {
                     TrailStripe stripe = new TrailStripe();
                     stripe.LoadFromHashMap(properties);
-                    stripe.texture = loadedImages.get(stripe.image);
-                    if (stripe.texture != null && !gpuTextureIds.containsKey(stripe.image)) {
-                        int textureId = RendererGpu.CreateTexture(stripe.texture);
-                        gpuTextureIds.put(stripe.image, textureId);
-                    }
                     stripes.add(stripe);
                 }
                 case 1 -> {
+                    TrailParticleEmitter emitter = new TrailParticleEmitter();
+                    emitter.LoadFromHashMap(properties);
+                    emitter.imageWidth = loadedImages.get(emitter.image).getWidth();
+                    emitter.imageHeight = loadedImages.get(emitter.image).getHeight();
+                    particles.add(emitter);
                 }
                 case 2 -> {
                 }
