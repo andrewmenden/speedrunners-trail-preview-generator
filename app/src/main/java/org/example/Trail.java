@@ -9,8 +9,6 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import imgui.ImGui;
-
 public class Trail {
     int version;
     String name;
@@ -24,11 +22,15 @@ public class Trail {
     long workshopId;
 
     public static final float SUPERSPEED_THRESHOLD = 800.0f;
+    public static final float AFTERIMAGE_THRESHOLD = 400.0f;
 
-    //Layers
-    List<TrailStripe> stripes;
-    List<TrailAnimation> animations;
-    List<TrailParticleEmitter> particles;
+    public static final int ENABLED_NEVER = 0;
+    public static final int ENABLED_ALWAYS = 1;
+    public static final int ENABLED_ONLY_SUPERSPEED = 2;
+    public static final int ENABLED_NOT_SUPERSPEED = 3;
+
+    List<TrailLayer> layers;
+    float totalTime;
 
     Trail() {
         version = 0;
@@ -41,21 +43,23 @@ public class Trail {
         loadedImages = new HashMap<>();
         keepDefaultTrail = false;
         workshopId = 0;
+        totalTime = 0.0f;
 
-        stripes = new ArrayList<TrailStripe>();
-        animations = new ArrayList<TrailAnimation>();
-        particles = new ArrayList<TrailParticleEmitter>();
+        layers = new ArrayList<TrailLayer>();
     }
 
     Trail(String filename) throws IOException {
         images = new HashMap<>();
         loadedImages = new HashMap<>();
 
-        stripes = new ArrayList<TrailStripe>();
-        animations = new ArrayList<TrailAnimation>();
-        particles = new ArrayList<TrailParticleEmitter>();
+        layers = new ArrayList<TrailLayer>();
 
         ReadFromFile(filename);
+    }
+
+    public static float CalculateSpeed(Vector2 velocity) {
+        return Vector2.Length(velocity);
+        // return Math.abs(velocity.x);
     }
 
     public void ReadFromFile(String filename) throws IOException {
@@ -71,39 +75,27 @@ public class Trail {
         }
     }
 
-    public void AddPoint(Vector2 position, Vector2 velocity, float time) {
-        float speed = velocity.x;
-        for (TrailStripe stripe : stripes) {
-            if (stripe.enabled == 0) continue;
-            if (speed < SUPERSPEED_THRESHOLD && stripe.enabled == 2) continue; 
-            if (speed >= SUPERSPEED_THRESHOLD && stripe.enabled == 3) continue;
-            stripe.AddPoint(position, velocity, time);
+    public void AddPoint(Vector2 position, Vector2 velocity) {
+        for (TrailLayer layer : layers) {
+            if (layer.layerType == 0) {
+                TrailStripe stripe = (TrailStripe) layer;
+                stripe.AddPoint(position, velocity, totalTime);
+            }
         }
     }
 
     public void Update(float deltaTime, Vector2 position, Vector2 velocity) {
-        for (TrailStripe stripe : stripes) {
-            stripe.Update(deltaTime);
+        totalTime += deltaTime;
+        for (TrailLayer layer : layers) {
+            layer.Update(deltaTime, position, velocity);
         }
-
-        for (TrailParticleEmitter emitter : particles) {
-            emitter.Update(position, velocity, deltaTime);
-        }
+        AddPoint(position, velocity);
     }
 
-    public void Render(RendererCpu renderer) {
-        //TODO
-        // for (TrailStripe stripe : stripes) {
-        // }
-    }
-
-    public void DebugRenderVertices() {
-        for (TrailStripe stripe : stripes) {
-            if (stripe.enabled == 0) continue;
-            for (Vertex vertex : stripe.vertices) {
-                ImGui.getBackgroundDrawList()
-                    .addCircleFilled((float)vertex.position.x, (float)vertex.position.y, 2, ImGui.getColorU32(1f,0f,0f,1f));
-            }
+    public void Reset() {
+        totalTime = 0.0f;
+        for (TrailLayer layer : layers) {
+            layer.Reset();
         }
     }
 
@@ -145,7 +137,6 @@ public class Trail {
             for (int j = 0; j < propertyCount; j++) {
                 String key = ReadString(in);
                 String value = ReadString(in);
-                System.out.println("Layer " + i + " - " + key + ": " + value);
                 properties.put(key, value);
             }
 
@@ -153,22 +144,33 @@ public class Trail {
                 case 0 -> {
                     TrailStripe stripe = new TrailStripe();
                     stripe.LoadFromHashMap(properties);
-                    stripes.add(stripe);
+                    layers.add(stripe);
                 }
                 case 1 -> {
                     TrailParticleEmitter emitter = new TrailParticleEmitter();
                     emitter.LoadFromHashMap(properties);
+                    if (!loadedImages.containsKey(emitter.image)) {
+                        continue;
+                    }
                     emitter.imageWidth = loadedImages.get(emitter.image).getWidth();
                     emitter.imageHeight = loadedImages.get(emitter.image).getHeight();
-                    particles.add(emitter);
+                    layers.add(emitter);
                 }
                 case 2 -> {
+                    TrailAnimation animation = new TrailAnimation();
+                    animation.LoadFromHashMap(properties);
+                    if (!loadedImages.containsKey(animation.image)) {
+                        continue;
+                    }
+                    animation.imageWidth = loadedImages.get(animation.image).getWidth();
+                    animation.imageHeight = loadedImages.get(animation.image).getHeight();
+                    layers.add(animation);
                 }
                 default -> throw new IOException("Unknown layer type: " + type);
             }
         }
 
-        SortStripesByOrder();
+        SortByOrder();
 
         //from pop
         if (version >= 2) {
@@ -179,8 +181,8 @@ public class Trail {
         }
     }
 
-    private void SortStripesByOrder() {
-        stripes.sort((a, b) -> Byte.compare(a.order, b.order));
+    private void SortByOrder() {
+        layers.sort((a, b) -> Integer.compare(a.order, b.order));
     }
 
     private int ReadInt4(DataInputStream in) throws IOException {

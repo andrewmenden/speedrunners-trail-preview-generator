@@ -1,7 +1,6 @@
 package org.example;
 
 import java.awt.image.BufferedImage;
-import java.util.List;
 
 public class RendererCpu {
 
@@ -26,40 +25,66 @@ public class RendererCpu {
     }
 
     public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2) {
-        int minX = Min(v0.position.x, v1.position.x, v2.position.x);
-        int maxX = Max(v0.position.x, v1.position.x, v2.position.x);
-        int minY = Min(v0.position.y, v1.position.y, v2.position.y);
-        int maxY = Max(v0.position.y, v1.position.y, v2.position.y);
+        Vertex sv0 = VertexShader(v0);
+        Vertex sv1 = VertexShader(v1);
+        Vertex sv2 = VertexShader(v2);
+
+        int minX = Min(sv0.position.x, sv1.position.x, sv2.position.x);
+        int maxX = Max(sv0.position.x, sv1.position.x, sv2.position.x);
+        int minY = Min(sv0.position.y, sv1.position.y, sv2.position.y);
+        int maxY = Max(sv0.position.y, sv1.position.y, sv2.position.y);
 
         for (int y = minY; y <= maxY; y++) {
             for (int x = minX; x <= maxX; x++) {
+                if (x < 0 || x >= width || y < 0 || y >= height) {
+                    continue;
+                }
+
                 Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
-                float[] factors = CalculateInterpolationFactors(v0, v1, v2, p);
+                float[] factors = CalculateInterpolationFactors(sv0, sv1, sv2, p);
                 if (factors[0] >= 0 && factors[1] >= 0 && factors[2] >= 0) {
                     Vector2 normalizedFragCoord = new Vector2(p.x / width, p.y / height);
                     Color color = FragmentShader(normalizedFragCoord,
                         new Color(
-                            factors[0] * v0.color.r + factors[1] * v1.color.r + factors[2] * v2.color.r,
-                            factors[0] * v0.color.g + factors[1] * v1.color.g + factors[2] * v2.color.g,
-                            factors[0] * v0.color.b + factors[1] * v1.color.b + factors[2] * v2.color.b,
-                            factors[0] * v0.color.a + factors[1] * v1.color.a + factors[2] * v2.color.a
+                            factors[0] * sv0.color.r + factors[1] * sv1.color.r + factors[2] * sv2.color.r,
+                            factors[0] * sv0.color.g + factors[1] * sv1.color.g + factors[2] * sv2.color.g,
+                            factors[0] * sv0.color.b + factors[1] * sv1.color.b + factors[2] * sv2.color.b,
+                            factors[0] * sv0.color.a + factors[1] * sv1.color.a + factors[2] * sv2.color.a
                         ),
-                        new Vector2(factors[0] * v0.textureCoordinate.x + factors[1] * v1.textureCoordinate.x + factors[2] * v2.textureCoordinate.x,
-                                    factors[0] * v0.textureCoordinate.y + factors[1] * v1.textureCoordinate.y + factors[2] * v2.textureCoordinate.y)
+                        new Vector2(factors[0] * sv0.textureCoordinate.x + factors[1] * sv1.textureCoordinate.x + factors[2] * sv2.textureCoordinate.x,
+                                    factors[0] * sv0.textureCoordinate.y + factors[1] * sv1.textureCoordinate.y + factors[2] * sv2.textureCoordinate.y)
                     );
-                    framebuffer.setRGB(x, y, color.toRGB());
+                    Color existingColor = new Color(
+                        ((framebuffer.getRGB(x, y) >> 16) & 0xFF) / 255f,
+                        ((framebuffer.getRGB(x, y) >> 8) & 0xFF) / 255f,
+                        (framebuffer.getRGB(x, y) & 0xFF) / 255f,
+                        ((framebuffer.getRGB(x, y) >> 24) & 0xFF) / 255f
+                    );
+                    Color blendedColor = Color.Blend(color, existingColor);
+                    framebuffer.setRGB(x, y, blendedColor.toRGB());
                 }
             }
         }
     }
 
-    public void DrawTriangleStrip(List<Vertex> vertices) {
-        for (int i = 0; i < vertices.size() - 2; i++) {
+    public void DrawTriangleStrip(VertexArray vertexArray, int startIndex, int endIndex) {
+        for (int i = startIndex; i < endIndex - 2; i++) {
             if (i % 2 == 0) {
-                DrawTriangle(vertices.get(i), vertices.get(i + 1), vertices.get(i + 2));
+                DrawTriangle(vertexArray.GetVertex(i), vertexArray.GetVertex(i + 1), vertexArray.GetVertex(i + 2));
             } else {
-                DrawTriangle(vertices.get(i + 1), vertices.get(i), vertices.get(i + 2));
+                DrawTriangle(vertexArray.GetVertex(i + 1), vertexArray.GetVertex(i), vertexArray.GetVertex(i + 2));
             }
+        }
+    }
+
+    public void DrawTriangleStrip(VertexArray vertexArray) {
+        DrawTriangleStrip(vertexArray, 0, vertexArray.vertexCount);
+    }
+
+    public void DrawQuads(VertexArray vertexArray) {
+        for (int i = 0; i < vertexArray.vertexCount - 3; i += 4) {
+            DrawTriangle(vertexArray.GetVertex(i), vertexArray.GetVertex(i + 1), vertexArray.GetVertex(i + 2));
+            DrawTriangle(vertexArray.GetVertex(i + 2), vertexArray.GetVertex(i + 3), vertexArray.GetVertex(i + 1));
         }
     }
 
@@ -103,6 +128,22 @@ public class RendererCpu {
 
     private Color SampleTexture(Vector2 textureCoordinate) {
         return SampleTextureBilinear(textureCoordinate);
+    }
+
+    private Vertex VertexShader(Vertex vertex) {
+        if (camera == null) {
+            return vertex;
+        }
+        Vector2 center = new Vector2(width / 2, height / 2);
+        Vertex transformedVertex = new Vertex(
+            new Vector2(
+                (int)((vertex.position.x - camera.position.x - center.x) * camera.zoom + center.x),
+                (int)((vertex.position.y - camera.position.y - center.y) * camera.zoom + center.y)
+            ),
+            vertex.color,
+            vertex.textureCoordinate
+        );
+        return transformedVertex;
     }
 
     private Color FragmentShader(Vector2 fragCoord, Color color, Vector2 textureCoordinate) {
@@ -151,6 +192,7 @@ public class RendererCpu {
     int height;
     BufferedImage texture;
     BufferedImage framebuffer;
+    Camera camera;
 
     RendererCpu(int width, int height) {
         this.width = width;

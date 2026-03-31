@@ -1,7 +1,5 @@
 package org.example;
 
-import java.util.Vector;
-
 public class Camera {
     Vector2 position;
     float zoom;

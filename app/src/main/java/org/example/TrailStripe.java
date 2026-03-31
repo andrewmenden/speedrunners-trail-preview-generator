@@ -1,48 +1,54 @@
 package org.example;
 
-import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.Vector;
 
-public class TrailStripe {
+public class TrailStripe extends TrailLayer {
 
     class TrailStripeVertex {
         Vector2 position;
         float lifetime;
+        boolean isNewStart;
+    }
+
+    class Segment {
+        int startIndex;
+        int endIndex;
     }
 
     //settings
     byte enabled; //0 = never, 1 = always, 2 = only at superspeed, 3 = not at superspeed
-    byte order;
-    String layer; //TODO
-    String image;
+    String layer; //unused-- i'm convinced this doesn't do anything
     boolean visible;
     float lifetime;
     Color color;
+    float opacity;
     boolean taper;
     boolean fade;
-    float fadeOutSpeed; //TODO
+    float fadeOutSpeed; //unused-- likely won't implement since it's honestly uglier than using
     float width;
     Vector2 offset;
-    boolean invertOffset; //TODO
+    boolean invertOffset;
     boolean flipHorizontal;
     boolean flipVertical;
-    boolean sameSideUp; //TODO
+    boolean sameSideUp;
     float noiseAmplitude;
     float waveAmplitude;
     float waveFrequency;
     float wavePhaseOffset;
 
-    Vector<Vertex> vertices;
     Vector<TrailStripeVertex> trailVertices;
+    Vector<Integer> newStartIndices;
+
+    boolean lastPointNotAdded = true;
 
     TrailStripe() {
+        super(0, (byte)0);
         this.trailVertices = new Vector<>();
-        this.vertices = new Vector<>();
+        this.newStartIndices = new Vector<>();
 
         enabled = 0;
-        order = 0;
-        layer = "ObjectLayer";
+        layer = "TrailBehindLocalPlayersLayer";
         image = "";
         visible = true;
         lifetime = 2.0f;
@@ -67,13 +73,36 @@ public class TrailStripe {
     }
 
     public void AddPoint(Vector2 position, Vector2 velocity, float gameTime) {
+        if (enabled == Trail.ENABLED_NEVER) {
+            lastPointNotAdded = true;
+            return;
+        } else if (enabled == Trail.ENABLED_ONLY_SUPERSPEED && Trail.CalculateSpeed(velocity) < Trail.SUPERSPEED_THRESHOLD) {
+            lastPointNotAdded = true;
+            return;
+        } else if (enabled == Trail.ENABLED_NOT_SUPERSPEED && Trail.CalculateSpeed(velocity) >= Trail.SUPERSPEED_THRESHOLD) {
+            lastPointNotAdded = true;
+            return;
+        } else if (enabled == Trail.ENABLED_ALWAYS && Vector2.Length(velocity) < Trail.AFTERIMAGE_THRESHOLD) {
+            lastPointNotAdded = true;
+            return;
+        }
+
         TrailStripeVertex newVertex = new TrailStripeVertex();
         newVertex.lifetime = this.lifetime;
+        newVertex.isNewStart = false;
+
+        if (lastPointNotAdded) {
+            newVertex.isNewStart = true;
+        }
+
+        lastPointNotAdded = false;
 
         float sin = this.waveAmplitude
                 * (float)Math.sin((this.waveFrequency * gameTime + this.wavePhaseOffset));
         Vector2 normal = Vector2.Normalize(velocity);
-        Vector2 adjustedOffset = Vector2.Transform(offset, normal);
+        Vector2 adjustedOffset = new Vector2(offset.x, -offset.y);
+        adjustedOffset.y *= !invertOffset && velocity.x > 0 ? -1 : 1;
+        adjustedOffset = Vector2.Transform(adjustedOffset, normal);
         normal = new Vector2(normal.y, -normal.x);
 
         Vector2 adjusted = Vector2.Sum(
@@ -86,14 +115,23 @@ public class TrailStripe {
     }
 
     private Vector2 CalculateNormal(int index) {
-        Vector2 previous = trailVertices.get(Math.max(0, index - 1)).position;
-        Vector2 next = trailVertices.get(Math.min(trailVertices.size() - 1, index + 1)).position;
+        Vector2 previous;
+        Vector2 next;
+        previous = trailVertices.get(Math.max(0, index - 1)).position;
+        next = trailVertices.get(Math.min(trailVertices.size() - 1, index + 1)).position;
+        if (trailVertices.get(index).isNewStart) {
+            previous = trailVertices.get(index).position;
+        }
+        if (index < trailVertices.size() - 1 && trailVertices.get(index + 1).isNewStart) {
+            next = trailVertices.get(index).position;
+        }
         Vector2 velocity = Vector2.Normalize(Vector2.Subtract(next, previous));
         return new Vector2(velocity.y, -velocity.x);
     }
 
     public void UpdateVertexBuffer() {
-        vertices = new Vector<>(trailVertices.size() * 2);
+        vertexArray.SetSize(trailVertices.size() * 2);
+        newStartIndices.clear();
 
         float length = 0;
         for (int i = 0; i < trailVertices.size() - 1; i++) {
@@ -106,6 +144,11 @@ public class TrailStripe {
 
         float accumulatedLength = 0;
         for (int i = 0; i < trailVertices.size(); i++) {
+            if (trailVertices.get(i).isNewStart) {
+                newStartIndices.add(i);
+            }
+            Vector2 normal = CalculateNormal(i);
+
             float t = accumulatedLength / length;
             accumulatedLength += (i < trailVertices.size() - 1)
                     ? Vector2.Distance(trailVertices.get(i).position, trailVertices.get(i + 1).position)
@@ -114,7 +157,7 @@ public class TrailStripe {
             if (this.taper) {
                 effectiveWidth *= (t);
             }
-            float effectiveAlpha = this.color.a;
+            float effectiveAlpha = this.color.a * this.opacity;
             if (this.fade) {
                 effectiveAlpha *= (t);
             }
@@ -124,7 +167,10 @@ public class TrailStripe {
             }
             float v = flipVertical ? 1 : 0;
 
-            Vector2 normal = CalculateNormal(i);
+            if (sameSideUp && normal.y > 0) {
+                v = 1 - v;
+            }
+
             TrailStripeVertex vertex = trailVertices.get(i);
 
             float noise = Noise(vertex.position.x);
@@ -146,56 +192,59 @@ public class TrailStripe {
             Vertex v1Vertex = new Vertex(v1, color, new Vector2(u, v));
             Vertex v2Vertex = new Vertex(v2, color, new Vector2(u, 1 - v));
 
-            vertices.add(v1Vertex);
-            vertices.add(v2Vertex);
+            vertexArray.AddVertex(v1Vertex);
+            vertexArray.AddVertex(v2Vertex);
         }
     }
 
-    public void Update(float deltaTime) {
-        for (TrailStripeVertex vertex : trailVertices) {
-            vertex.lifetime -= deltaTime;
+    public int GetSegmentCount() {
+        return newStartIndices.size();
+    }
+
+    public Segment GetSegment(int index) {
+        if (index >= newStartIndices.size()) {
+            throw new IndexOutOfBoundsException();
         }
-        trailVertices.removeIf(vertex -> vertex.lifetime <= 0);
+        Segment segment = new Segment();
+        segment.startIndex = newStartIndices.get(index) * 2; //each vertex has 2 vertices in the vertex array
+        if (index == newStartIndices.size() - 1) {
+            segment.endIndex = vertexArray.vertexCount;
+        } else {
+            segment.endIndex = newStartIndices.get(index + 1) * 2;
+        }
+        return segment;
+    }
+
+    @Override
+    public void Update(float deltaTime, Vector2 position, Vector2 velocity) {
+        for (int i = trailVertices.size() - 1; i >= 0; i--) {
+            TrailStripeVertex vertex = trailVertices.get(i);
+            vertex.lifetime -= deltaTime;
+            if (vertex.lifetime <= 0) {
+                if (vertex.isNewStart) {
+                    //transfer to next vertex
+                    if (i + 1 < trailVertices.size()) {
+                        trailVertices.get(i + 1).isNewStart = true;
+                    }
+                }
+                trailVertices.remove(i);
+            }
+        }
         UpdateVertexBuffer();
     }
 
-    public String ToString() {
-        return String.format(
-            "enabled: %d, order: %d, layer: %s, image: %s, visible: %b, lifetime: %f, color: %f, %f, %f, %f, taper: %b, fade: %b, fadeOutSpeed: %f, width: %f, offset: %f, %f, invertOffset: %b, flipHorizontal: %b, flipVertical: %b, sameSideUp: %b, noiseAmplitude: %f, waveAmplitude: %f, waveFrequency: %f, wavePhaseOffset: %f",
-            enabled, order, layer, image, visible, lifetime,
-            color.r, color.g, color.b, color.a,
-            taper, fade, fadeOutSpeed, width,
-            offset.x, offset.y, invertOffset, flipHorizontal, flipVertical, sameSideUp,
-            noiseAmplitude, waveAmplitude, waveFrequency, wavePhaseOffset
-        );
+    @Override
+    public void Reset() {
+        trailVertices.clear();
+        newStartIndices.clear();
+        lastPointNotAdded = true;
     }
 
+    @Override
     public void LoadFromHashMap(HashMap<String, String> properties) {
-        String enabledString = properties.getOrDefault("Enabled", "NEVER");
-        String orderString = properties.getOrDefault("Order", "0");
-        layer = properties.getOrDefault("Layer", "ObjectLayer");
-        String imageString = properties.getOrDefault("Image", "");
-        String visibleString = properties.getOrDefault("Visible", "TRUE");
-        String lifeTimeString = properties.getOrDefault("LifeTime", "2");
-        String[] colorString = properties.getOrDefault("Color", "1,1,1").split(",");
-        String taperString = properties.getOrDefault("Taper", "FALSE");
-        String fadeOutString = properties.getOrDefault("FadeOut", "FALSE");
-        String fadeOutSpeedString = properties.getOrDefault("FadeOut Speed", "1");
-        String opacityString = properties.getOrDefault("Opacity", "1");
-        String sizeString = properties.getOrDefault("Size", "40");
-        // String offsetString = properties.getOrDefault("Offset", "0"); //unused?
-        // String xOffsetString = properties.getOrDefault("X-Offset", "0"); //unused?
-        String[] offsetVectorString = properties.getOrDefault("OffsetVector", "0,0").split(",");
-        String invertOffsetString = properties.getOrDefault("Invert Offset", "TRUE");
-        String flipHorizontallyString = properties.getOrDefault("Flip Horizontally", "FALSE");
-        String flipVerticallyString = properties.getOrDefault("Flip Vertically", "FALSE");
-        String forceRightSideUpString = properties.getOrDefault("Force right side Up", "FALSE");
-        String noiseString = properties.getOrDefault("Noise", "0");
-        String sinewaveAmplitudeString = properties.getOrDefault("Sinewave Amplitude", "0");
-        String sinewaveFrequencyString = properties.getOrDefault("Sinewave Frequency", "0");
-        String sinePhaseOffsetString = properties.getOrDefault("Sine Phase Offset", "0");
+        layer = properties.getOrDefault("Layer", "TrailBehindLocalPlayersLayer");
 
-        switch (enabledString.toUpperCase()) {
+        switch (properties.getOrDefault("Enabled", "NEVER").toUpperCase()) {
             case "ALWAYS":
                 enabled = 1;
                 break;
@@ -209,23 +258,24 @@ public class TrailStripe {
                 enabled = 0;
         }
 
-        order = Byte.parseByte(orderString);
-        image = imageString;
-        visible = visibleString.equalsIgnoreCase("TRUE");
-        lifetime = Float.parseFloat(lifeTimeString);
-        color = new Color(Float.parseFloat(colorString[0]), Float.parseFloat(colorString[1]), Float.parseFloat(colorString[2]), Float.parseFloat(opacityString));
-        taper = taperString.equalsIgnoreCase("TRUE");
-        fade = fadeOutString.equalsIgnoreCase("TRUE");
-        fadeOutSpeed = Float.parseFloat(fadeOutSpeedString);
-        width = Float.parseFloat(sizeString);
-        offset = new Vector2(Float.parseFloat(offsetVectorString[0]), Float.parseFloat(offsetVectorString[1]));
-        invertOffset = invertOffsetString.equalsIgnoreCase("TRUE");
-        flipHorizontal = flipHorizontallyString.equalsIgnoreCase("TRUE");
-        flipVertical = flipVerticallyString.equalsIgnoreCase("TRUE");
-        sameSideUp = forceRightSideUpString.equalsIgnoreCase("TRUE");
-        noiseAmplitude = Float.parseFloat(noiseString);
-        waveAmplitude = Float.parseFloat(sinewaveAmplitudeString);
-        waveFrequency = Float.parseFloat(sinewaveFrequencyString);
-        wavePhaseOffset = Float.parseFloat(sinePhaseOffsetString);
+        order = Byte.parseByte(properties.getOrDefault("Order", "0"));
+        image = properties.getOrDefault("Image", "");
+        visible = properties.getOrDefault("Visible", "TRUE").equalsIgnoreCase("TRUE");
+        lifetime = Float.parseFloat(properties.getOrDefault("LifeTime", "2"));
+        color = Color.Parse(properties.getOrDefault("Color", "1,1,1"));
+        opacity = Float.parseFloat(properties.getOrDefault("Opacity", "1"));
+        taper = properties.getOrDefault("Taper", "FALSE").equalsIgnoreCase("TRUE");
+        fade = properties.getOrDefault("FadeOut", "FALSE").equalsIgnoreCase("TRUE");
+        fadeOutSpeed = Float.parseFloat(properties.getOrDefault("FadeOut Speed", "1"));
+        width = Float.parseFloat(properties.getOrDefault("Size", "40"));
+        offset = Vector2.Parse(properties.getOrDefault("OffsetVector", "0,0"));
+        invertOffset = properties.getOrDefault("Invert Offset", "TRUE").equalsIgnoreCase("TRUE");
+        flipHorizontal = properties.getOrDefault("Flip Horizontally", "FALSE").equalsIgnoreCase("TRUE");
+        flipVertical = properties.getOrDefault("Flip Vertically", "FALSE").equalsIgnoreCase("TRUE");
+        sameSideUp = properties.getOrDefault("Force right side Up", "FALSE").equalsIgnoreCase("TRUE");
+        noiseAmplitude = Float.parseFloat(properties.getOrDefault("Noise", "0"));
+        waveAmplitude = Float.parseFloat(properties.getOrDefault("Sinewave Amplitude", "0"));
+        waveFrequency = Float.parseFloat(properties.getOrDefault("Sinewave Frequency", "0"));
+        wavePhaseOffset = Float.parseFloat(properties.getOrDefault("Sine Phase Offset", "0"));
     }
 }

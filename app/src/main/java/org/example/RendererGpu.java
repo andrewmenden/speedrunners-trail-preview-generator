@@ -2,9 +2,6 @@ package org.example;
 
 import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
-import java.util.List;
-
-import imgui.ImGui;
 
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL13.*;
@@ -53,28 +50,17 @@ public class RendererGpu {
         glBindVertexArray(0);
     }
 
-    public void DrawTriangleStrip(List<Vertex> vertices, int textureId) {
-        if (vertices.isEmpty()) return;
-        float[] vertexData = new float[vertices.size() * 8];
+    public void DrawTriangleStrip(VertexArray vertexArray, int textureId, int startVertex, int endVertex) {
+        if (vertexArray.vertexCount < 3) {
+            return;
+        }
 
         float halfWidth = width / 2.0f;
         float halfHeight = height / 2.0f;
 
-        for (int i = 0; i < vertices.size(); i++) {
-            Vertex vertex = vertices.get(i);
-            vertexData[i * 8] = (float) vertex.position.x / halfWidth - 1.0f; // Convert to NDC
-            vertexData[i * 8 + 1] = (float) vertex.position.y / halfHeight - 1.0f; // Convert to NDC
-            vertexData[i * 8 + 2] = vertex.color.r;
-            vertexData[i * 8 + 3] = vertex.color.g;
-            vertexData[i * 8 + 4] = vertex.color.b;
-            vertexData[i * 8 + 5] = vertex.color.a;
-            vertexData[i * 8 + 6] = (float) vertex.textureCoordinate.x;
-            vertexData[i * 8 + 7] = (float) vertex.textureCoordinate.y;
-        }
-
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertexData, GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, vertexArray.GetVertices(), GL_DYNAMIC_DRAW);
 
         glUseProgram(shaderProgram);
         float camX = (float) camera.position.x / halfWidth;
@@ -89,33 +75,28 @@ public class RendererGpu {
         } else {
             glUniform1i(glGetUniformLocation(shaderProgram, "useTexture"), 0);
         }
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, vertices.size());
+        glUniform1f(glGetUniformLocation(shaderProgram, "worldWidth"), width);
+        glUniform1f(glGetUniformLocation(shaderProgram, "worldHeight"), height);
+        glDrawArrays(GL_TRIANGLE_STRIP, startVertex, endVertex - startVertex);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
     }
 
-    public void DrawQuads(List<Vertex> vertices, int textureId) {
-        if (vertices.isEmpty()) return;
-        float[] vertexData = new float[vertices.size() * 8];
+    public void DrawTriangleStrip(VertexArray vertexArray, int textureId) {
+        DrawTriangleStrip(vertexArray, textureId, 0, vertexArray.vertexCount);
+    }
+
+    public void DrawQuads(VertexArray vertexArray, int textureId) {
+        if (vertexArray.vertexCount < 4) {
+            return;
+        }
 
         float halfWidth = width / 2.0f;
         float halfHeight = height / 2.0f;
 
-        for (int i = 0; i < vertices.size(); i++) {
-            Vertex vertex = vertices.get(i);
-            vertexData[i * 8] = (float) vertex.position.x / halfWidth - 1.0f;
-            vertexData[i * 8 + 1] = (float) vertex.position.y / halfHeight - 1.0f;
-            vertexData[i * 8 + 2] = vertex.color.r;
-            vertexData[i * 8 + 3] = vertex.color.g;
-            vertexData[i * 8 + 4] = vertex.color.b;
-            vertexData[i * 8 + 5] = vertex.color.a;
-            vertexData[i * 8 + 6] = (float) vertex.textureCoordinate.x;
-            vertexData[i * 8 + 7] = (float) vertex.textureCoordinate.y;
-        }
-
-        int[] indices = new int[vertices.size() / 4 * 6];
-        for (int i = 0; i < vertices.size() / 4; i++) {
+        int[] indices = new int[vertexArray.vertexCount / 4 * 6];
+        for (int i = 0; i < vertexArray.vertexCount / 4; i++) {
             int baseIndex = i * 4;
             indices[i * 6] = baseIndex;
             indices[i * 6 + 1] = baseIndex + 1; 
@@ -127,7 +108,7 @@ public class RendererGpu {
 
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertexData, GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, vertexArray.GetVertices(), GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices, GL_DYNAMIC_DRAW);
 
@@ -144,6 +125,8 @@ public class RendererGpu {
         } else {
             glUniform1i(glGetUniformLocation(shaderProgram, "useTexture"), 0);
         }
+        glUniform1f(glGetUniformLocation(shaderProgram, "worldWidth"), width);
+        glUniform1f(glGetUniformLocation(shaderProgram, "worldHeight"), height);
         glDrawElements(GL_TRIANGLES, indices.length, GL_UNSIGNED_INT, 0);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -151,39 +134,34 @@ public class RendererGpu {
         glBindVertexArray(0);
     }
 
-    public void DrawPoints(List<Vertex> vertices, float radius) {
-        if (vertices.isEmpty()) return;
-        int circlePoints = 3;
-        float[] vertexData = new float[vertices.size() * 8 * 3];
+    public void DrawLines(VertexArray vertexArray, int textureId) {
+        if (vertexArray.vertexCount < 2) {
+            return;
+        }
 
         float halfWidth = width / 2.0f;
         float halfHeight = height / 2.0f;
 
-        for (int i = 0; i < vertices.size(); i++) {
-            Vertex vertex = vertices.get(i);
-            for (int j = 0; j < circlePoints; j++) {
-                float angle = (float) (j * 2 * Math.PI / circlePoints);
-                vertexData[(i * circlePoints + j) * 8] = (float) vertex.position.x / halfWidth - 1.0f + (float) Math.cos(angle) * radius / halfWidth;
-                vertexData[(i * circlePoints + j) * 8 + 1] = (float) vertex.position.y / halfHeight - 1.0f + (float) Math.sin(angle) * radius / halfHeight;
-                vertexData[(i * circlePoints + j) * 8 + 2] = vertex.color.r;
-                vertexData[(i * circlePoints + j) * 8 + 3] = vertex.color.g;
-                vertexData[(i * circlePoints + j) * 8 + 4] = vertex.color.b;
-                vertexData[(i * circlePoints + j) * 8 + 5] = vertex.color.a;
-                vertexData[(i * circlePoints + j) * 8 + 6] = (float) vertex.textureCoordinate.x;
-                vertexData[(i * circlePoints + j) * 8 + 7] = (float) vertex.textureCoordinate.y;
-            }
-        }
-
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertexData, GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, vertexArray.GetVertices(), GL_DYNAMIC_DRAW);
+
         glUseProgram(shaderProgram);
         float camX = (float) camera.position.x / halfWidth;
         float camY = (float) camera.position.y / halfHeight;
         glUniform2f(glGetUniformLocation(shaderProgram, "cameraPosition"), camX, camY);
         glUniform1f(glGetUniformLocation(shaderProgram, "cameraZoom"), camera.zoom);
-        glUniform1i(glGetUniformLocation(shaderProgram, "useTexture"), 0);
-        glDrawArrays(GL_TRIANGLES, 0, vertices.size() * circlePoints);
+        if (textureId != -1) {
+            glUniform1i(glGetUniformLocation(shaderProgram, "texture1"), 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "useTexture"), 1);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, textureId);
+        } else {
+            glUniform1i(glGetUniformLocation(shaderProgram, "useTexture"), 0);
+        }
+        glUniform1f(glGetUniformLocation(shaderProgram, "worldWidth"), width);
+        glUniform1f(glGetUniformLocation(shaderProgram, "worldHeight"), height);
+        glDrawArrays(GL_LINE_LOOP, 0, vertexArray.vertexCount);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
@@ -282,11 +260,19 @@ public class RendererGpu {
         uniform vec2 cameraPosition;
         uniform float cameraZoom;
 
+        uniform float worldWidth;
+        uniform float worldHeight;
+
         out vec4 vertexColor;
         out vec2 texCoord;
 
         void main() {
-            vec2 pos = (aPos - cameraPosition) * cameraZoom;
+            // Convert from world coordinates to normalized device coordinates
+            vec2 pos = aPos;
+            pos.x = (pos.x / worldWidth) * 2.0 - 1.0;
+            pos.y = (pos.y / worldHeight) * 2.0 - 1.0;
+
+            pos = (pos - cameraPosition) * cameraZoom;
             pos.y = -pos.y; // Invert Y axis for OpenGL
             gl_Position = vec4(pos, 0.0, 1.0);
             vertexColor = aColor;

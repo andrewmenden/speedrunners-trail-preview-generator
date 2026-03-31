@@ -10,6 +10,15 @@ public class Color {
         this.a = a;
     }
 
+    public static Color Blend(Color src, Color dst) {
+        float outA = src.a + dst.a * (1 - src.a);
+        if (outA == 0) return new Color(0, 0, 0, 0);
+        float outR = (src.r * src.a + dst.r * dst.a * (1 - src.a)) / outA;
+        float outG = (src.g * src.a + dst.g * dst.a * (1 - src.a)) / outA;
+        float outB = (src.b * src.a + dst.b * dst.a * (1 - src.a)) / outA;
+        return new Color(outR, outG, outB, outA);
+    }
+
     public static Color Multiply(Color a, Color b) {
         return new Color(a.r * b.r, a.g * b.g, a.b * b.b, a.a * b.a);
     }

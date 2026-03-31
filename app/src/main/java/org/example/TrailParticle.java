@@ -71,7 +71,6 @@ public class TrailParticle {
                          Vector2 scale, float scaleSpeed, float rotation, float rotationSpeed, Color color, float opacity,
                          Vector2 position, Vector2 velocity, Vector2 acceleration, int initialFrameIndex,
                          int imageWidth, int imageHeight) {
-        // this.textureId = textureId;
         this.image = image;
         this.spriteMode = spriteMode;
         this.spriteCountX = spriteCountX;

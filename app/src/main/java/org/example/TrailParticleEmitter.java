@@ -4,17 +4,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 
-public class TrailParticleEmitter {
+public class TrailParticleEmitter extends TrailLayer {
     List<TrailParticle> particles;
     
     //trail settings
     byte enabled; //0 = never, 1 = always, 2 = only at superspeed, 3 = not at superspeed
-    byte order;
     String layer; //TODO
     String image;
     boolean visible;
     boolean isAnimated;
-    byte spriteMode; //probably default, ping pong, once then stop (?)
+    byte spriteMode;
     Vector2 spriteSize;
     Vector2 spriteCount;
     int spriteFPS;
@@ -51,8 +50,6 @@ public class TrailParticleEmitter {
 
     int sequentialFrameIndex; //for sequential sprite mode
 
-    List<Vertex> vertices; //list of quads for all particles-- for one draw call per emitter rather than per particle
-
     //not sure how the game does this, but this is probably good enough
     //return -1 to 1
     private float Noise() {
@@ -60,17 +57,16 @@ public class TrailParticleEmitter {
     }
 
     public TrailParticleEmitter() {
+        super(0,(byte)1);
+
         particles = new java.util.ArrayList<>();
         random = new Random();
         image = "";
         timeSinceLastSpawn = 0;
         sequentialFrameIndex = 0;
-        vertices = new java.util.ArrayList<>();
 
         enabled = 0;
-        order = 0;
         layer = "ObjectLayer";
-        image = "";
         imageWidth = 0;
         imageHeight = 0;
         visible = true;
@@ -112,47 +108,53 @@ public class TrailParticleEmitter {
         LoadFromHashMap(properties);
     }
 
-    public void Update(Vector2 playerPosition, Vector2 playVelocity, float deltaTime) {
+    @Override
+    public void Update(float deltaTime, Vector2 position, Vector2 velocity) {
         timeSinceLastSpawn += deltaTime;
+        Update(deltaTime);
 
-        if (enabled == 0) return;
-        if (enabled == 2 && playVelocity.x < Trail.SUPERSPEED_THRESHOLD) return;
-        if (enabled == 3 && playVelocity.x >= Trail.SUPERSPEED_THRESHOLD) return;
+        if (enabled == Trail.ENABLED_NEVER) return;
+        if (enabled == Trail.ENABLED_ONLY_SUPERSPEED && Trail.CalculateSpeed(velocity) < Trail.SUPERSPEED_THRESHOLD) {
+            return;
+        }
+        if (enabled == Trail.ENABLED_NOT_SUPERSPEED && Trail.CalculateSpeed(velocity) >= Trail.SUPERSPEED_THRESHOLD) {
+             return;
+        }
+         if (enabled == Trail.ENABLED_ALWAYS && Vector2.Length(velocity) < Trail.AFTERIMAGE_THRESHOLD) {
+             return;
+         }
 
         if (timeSinceLastSpawn >= spawnRate) {
-            timeSinceLastSpawn -= spawnRate;
+            timeSinceLastSpawn = timeSinceLastSpawn % spawnRate;
             for (int i = 0; i < amount; i++) {
-                Emit(playerPosition, playVelocity);
+                Emit(position, velocity);
             }
         }
-
-        Update(deltaTime);
     }
 
     private float DegreesToRadians(float degrees) {
         return degrees * (float)Math.PI / 180.0f;
     }
 
-    public void Emit(Vector2 playerPosition, Vector2 playerVelocity) {
+    public void Emit(Vector2 position, Vector2 velocity) {
         float scaleA = scale + Noise() * scaleVariance;
         float rotationA = rotation + Noise() * rotatationVariance;
         float rotationSpeedA = rotationSpeed + Noise() * rotationSpeedVariance;
-        float playerRotation = (float)Math.atan2(playerVelocity.y, playerVelocity.x) + (playerVelocity.x < 0 ? (sameSideUp ? (float)Math.PI : -(float)Math.PI/2.0f) : 0);
+        float playerRotation = (float)Math.atan2(velocity.y, velocity.x) + (velocity.x < 0 ? (sameSideUp ? (float)Math.PI : -(float)Math.PI/2.0f) : 0);
         float offsetXA = offset.x + Noise() * offsetVariance.x;
         float offsetYA = offset.y + Noise() * offsetVariance.y;
         float forceA = force + Noise() * forceVariance;
         float directionXA = direction.x + Noise() * directionVariance.x;
         float directionYA = direction.y + Noise() * directionVariance.y;
         Vector2 worldDirection = Vector2.Normalize(new Vector2(directionXA, directionYA));
-        Vector2 playerDirection = Vector2.Normalize(playerVelocity); //not really a normal
-        // playerNormal = new Vector2(playerNormal.y, -playerNormal.x); //perpendicular to velocity
+        Vector2 playerDirection = Vector2.Normalize(velocity);
 
         rotationA = DegreesToRadians(rotationA);
         rotationSpeedA = DegreesToRadians(rotationSpeedA);
 
         float initialRotation = rotateWithPlayer ? rotationA + playerRotation : rotationA;
 
-        Vector2 initialPosition = new Vector2(playerPosition.x + offsetXA, playerPosition.y + offsetYA);
+        Vector2 initialPosition = new Vector2(position.x + offsetXA, position.y + offsetYA);
         Vector2 initialVelocity = useWorldAxis ? Vector2.Scale(worldDirection, forceA) : Vector2.Scale(playerDirection, forceA);
         Vector2 initialAcceleration = hasGravity ? gravityStrength : new Vector2(0, 0);
 
@@ -199,13 +201,21 @@ public class TrailParticleEmitter {
         }
 
         //update vertex buffer for all particles
-        vertices = new java.util.ArrayList<>(particles.size() * 4); //each particle is a quad (4 vertices)
+        vertexArray.SetSize(particles.size() * 4);
         for (TrailParticle particle : particles) {
             particle.UpdateVertexBuffer(deltaTime);
-            vertices.addAll(particle.vertices);
+            vertexArray.AddVertices(particle.vertices);
         }
     }
 
+    @Override
+    public void Reset() {
+        particles.clear();
+        timeSinceLastSpawn = 0;
+        sequentialFrameIndex = 0;
+    }
+
+    @Override
     public void LoadFromHashMap(HashMap<String, String> properties) {
         String enabledString = properties.getOrDefault("Enabled", "NEVER");
         String spriteModeString = properties.getOrDefault("spriteMode", "DEFAULT");
@@ -227,7 +237,7 @@ public class TrailParticleEmitter {
         }
 
         //enabled
-        order = Byte.parseByte(properties.getOrDefault("Order", "0"));
+        order = Integer.parseInt(properties.getOrDefault("Order", "0"));
         layer = properties.getOrDefault("Layer", "TrailBehindLocalPlayersLayer");
         image = properties.getOrDefault("Image", "");
         visible = Boolean.parseBoolean(properties.getOrDefault("Visible", "TRUE"));
