@@ -24,6 +24,10 @@ public class RendererCpu {
         return (int)Math.ceil(Math.max(a, Math.max(b, c)));
     }
 
+    private boolean IsTopLeftEdge(Vector2 a, Vector2 b) {
+        return (a.y < b.y) || (a.y == b.y && a.x > b.x);
+    }
+
     public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2) {
         Vertex sv0 = VertexShader(v0);
         Vertex sv1 = VertexShader(v1);
@@ -42,27 +46,38 @@ public class RendererCpu {
 
                 Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
                 float[] factors = CalculateInterpolationFactors(sv0, sv1, sv2, p);
-                if (factors[0] >= 0 && factors[1] >= 0 && factors[2] >= 0) {
-                    Vector2 normalizedFragCoord = new Vector2(p.x / width, p.y / height);
-                    Color color = FragmentShader(normalizedFragCoord,
-                        new Color(
-                            factors[0] * sv0.color.r + factors[1] * sv1.color.r + factors[2] * sv2.color.r,
-                            factors[0] * sv0.color.g + factors[1] * sv1.color.g + factors[2] * sv2.color.g,
-                            factors[0] * sv0.color.b + factors[1] * sv1.color.b + factors[2] * sv2.color.b,
-                            factors[0] * sv0.color.a + factors[1] * sv1.color.a + factors[2] * sv2.color.a
-                        ),
-                        new Vector2(factors[0] * sv0.textureCoordinate.x + factors[1] * sv1.textureCoordinate.x + factors[2] * sv2.textureCoordinate.x,
-                                    factors[0] * sv0.textureCoordinate.y + factors[1] * sv1.textureCoordinate.y + factors[2] * sv2.textureCoordinate.y)
-                    );
-                    Color existingColor = new Color(
-                        ((framebuffer.getRGB(x, y) >> 16) & 0xFF) / 255f,
-                        ((framebuffer.getRGB(x, y) >> 8) & 0xFF) / 255f,
-                        (framebuffer.getRGB(x, y) & 0xFF) / 255f,
-                        ((framebuffer.getRGB(x, y) >> 24) & 0xFF) / 255f
-                    );
-                    Color blendedColor = Color.Blend(color, existingColor);
-                    framebuffer.setRGB(x, y, blendedColor.toRGB());
+
+                boolean e0 = IsTopLeftEdge(sv1.position, sv2.position);
+                boolean e1 = IsTopLeftEdge(sv2.position, sv0.position);
+                boolean e2 = IsTopLeftEdge(sv0.position, sv1.position);
+
+                boolean inside = (factors[0] > 0 || (factors[0] == 0 && e0)) &&
+                                 (factors[1] > 0 || (factors[1] == 0 && e1)) &&
+                                 (factors[2] > 0 || (factors[2] == 0 && e2));
+
+                if (!inside) {
+                    continue;
                 }
+
+                Vector2 normalizedFragCoord = new Vector2(p.x / width, p.y / height);
+                Color color = FragmentShader(normalizedFragCoord,
+                    new Color(
+                        factors[0] * sv0.color.r + factors[1] * sv1.color.r + factors[2] * sv2.color.r,
+                        factors[0] * sv0.color.g + factors[1] * sv1.color.g + factors[2] * sv2.color.g,
+                        factors[0] * sv0.color.b + factors[1] * sv1.color.b + factors[2] * sv2.color.b,
+                        factors[0] * sv0.color.a + factors[1] * sv1.color.a + factors[2] * sv2.color.a
+                    ),
+                    new Vector2(factors[0] * sv0.textureCoordinate.x + factors[1] * sv1.textureCoordinate.x + factors[2] * sv2.textureCoordinate.x,
+                                factors[0] * sv0.textureCoordinate.y + factors[1] * sv1.textureCoordinate.y + factors[2] * sv2.textureCoordinate.y)
+                );
+                Color existingColor = new Color(
+                    ((framebuffer.getRGB(x, y) >> 16) & 0xFF) / 255f,
+                    ((framebuffer.getRGB(x, y) >> 8) & 0xFF) / 255f,
+                    (framebuffer.getRGB(x, y) & 0xFF) / 255f,
+                    ((framebuffer.getRGB(x, y) >> 24) & 0xFF) / 255f
+                );
+                Color blendedColor = Color.Blend(color, existingColor);
+                framebuffer.setRGB(x, y, blendedColor.toRGB());
             }
         }
     }
@@ -72,7 +87,7 @@ public class RendererCpu {
             if (i % 2 == 0) {
                 DrawTriangle(vertexArray.GetVertex(i), vertexArray.GetVertex(i + 1), vertexArray.GetVertex(i + 2));
             } else {
-                DrawTriangle(vertexArray.GetVertex(i + 1), vertexArray.GetVertex(i), vertexArray.GetVertex(i + 2));
+                DrawTriangle(vertexArray.GetVertex(i), vertexArray.GetVertex(i + 2), vertexArray.GetVertex(i + 1));
             }
         }
     }

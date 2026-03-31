@@ -9,7 +9,7 @@ public class TrailParticleEmitter extends TrailLayer {
     
     //trail settings
     byte enabled; //0 = never, 1 = always, 2 = only at superspeed, 3 = not at superspeed
-    String layer; //TODO
+    String layer; //unused
     String image;
     boolean visible;
     boolean isAnimated;

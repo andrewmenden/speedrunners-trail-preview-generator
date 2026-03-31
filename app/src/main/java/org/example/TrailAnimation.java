@@ -5,7 +5,7 @@ import java.util.HashMap;
 public class TrailAnimation extends TrailLayer {
 
     byte enabled; //0 = never, 1 = always, 2 = only at superspeed, 3 = not at superspeed
-    String layer; //TODO
+    String layer; //unused
     boolean visible;
     Vector2 spriteCount;
     int startFrame;

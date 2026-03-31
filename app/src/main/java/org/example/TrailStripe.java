@@ -1,7 +1,8 @@
 package org.example;
 
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Vector;
+import java.util.List;
 
 public class TrailStripe extends TrailLayer {
 
@@ -18,14 +19,14 @@ public class TrailStripe extends TrailLayer {
 
     //settings
     byte enabled; //0 = never, 1 = always, 2 = only at superspeed, 3 = not at superspeed
-    String layer; //unused-- i'm convinced this doesn't do anything
+    String layer; //unused
     boolean visible;
     float lifetime;
     Color color;
     float opacity;
     boolean taper;
     boolean fade;
-    float fadeOutSpeed; //unused-- likely won't implement since it's honestly uglier than using
+    float fadeOutSpeed; //unused-- likely won't implement since it's honestly uglier than doing nothing
     float width;
     Vector2 offset;
     boolean invertOffset;
@@ -37,15 +38,15 @@ public class TrailStripe extends TrailLayer {
     float waveFrequency;
     float wavePhaseOffset;
 
-    Vector<TrailStripeVertex> trailVertices;
-    Vector<Integer> newStartIndices;
+    List<TrailStripeVertex> trailVertices;
+    List<Integer> newStartIndices;
 
     boolean lastPointNotAdded = true;
 
     TrailStripe() {
         super(0, (byte)0);
-        this.trailVertices = new Vector<>();
-        this.newStartIndices = new Vector<>();
+        this.trailVertices = new ArrayList<>();
+        this.newStartIndices = new ArrayList<>();
 
         enabled = 0;
         layer = "TrailBehindLocalPlayersLayer";

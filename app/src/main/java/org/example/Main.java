@@ -330,37 +330,9 @@ public class Main {
         }
     }
 
-    static void Run() {
-        // String path = "C:\\Users\\olsud\\Dev\\defaultTrail.srt";
-        String path = "C:\\Users\\olsud\\Documents\\SavedGames\\SpeedRunners\\CEngineStorage\\AllPlayers\\Trails\\Local\\";
-        String trailName = "ST Goldilocks.srt";
-        Trail trail = null;
-        try {
-            trail = new Trail(path + trailName);
-        } catch (IOException e) {
-            System.err.println("Error loading trail: " + e.getMessage());
-        }
-
-        if (trail == null) return;
-
-        Camera camera = new Camera();
-        RendererCpu cpu = new RendererCpu(2560, 1440);
-        cpu.camera = camera;
-        Path pathA = new Path(0.016f);
-
-        for (int i = 0; i < 600; i++) {
-            Vector2 position = pathA.GetNextPositionCircle(500, 1.0f);
-            Vector2 velocity = pathA.CalculateVelocity(position);
-            trail.Update(0.016f, position, velocity);
-        }
-
-        RenderCPU(cpu, trail);
-        cpu.SaveToFile("test.png");
-    }
-
     public static void main(String[] args) {
         try {
-            FullRender("C:\\Users\\olsud\\Documents\\SavedGames\\SpeedRunners\\CEngineStorage\\AllPlayers\\Trails\\Local\\Shadow.srt");
+            FullRender("C:\\Users\\olsud\\Documents\\SavedGames\\SpeedRunners\\CEngineStorage\\AllPlayers\\Trails\\Local\\ST Goldilocks.srt");
         } catch (IOException e) {
             e.printStackTrace();
         }
